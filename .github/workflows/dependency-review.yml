@@ -1,0 +1,16 @@
+name: 'Dependency Review'
+
+on:
+  pull_request:
+    branches: [ "main" ]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  dependency-Review:
+    name: Review
+    uses: coveo/public-actions/.github/workflows/dependency-review-v3.yml@5a3c9311bf6a65f17f02c21d72cccd1a0ad48a3a # main
+    with:
+      runs-on: '["ubuntu-latest"]'

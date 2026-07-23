@@ -1,0 +1,113 @@
+name: stew ci
+description: Launch "stew ci" on a python project
+inputs:
+  project-name:
+    description: |
+      When empty, all projects in the repository will be targeted.
+      When set to a value starting with '.', the project at that path will be targeted.
+      When set to any other string, only that project will be targeted.
+    required: false
+    default: '' # find and run all python projects
+  working-directory:
+    description: The working directory where stew will run. Defaults to the root of the repository.
+    required: false
+    default: '.'
+  python-version:
+    description: The python version number, such as "3.10". See `actions/setup-python` for documentation.
+    required: true
+  poetry-version:
+    description: The pip constraint when installing poetry.
+    required: false
+    default: "<2.0.0"
+  coveo-stew-version:
+    description: The pip constraint when installing coveo-stew.
+    required: false
+    default: "<5"
+  run-stew:
+    description: If not "true", `stew ci` will not be ran. This is a shortcut to checkout/setup-python/poetry/stew without running it.
+    required: false
+    default: "true"
+  install-python:
+    description: Can be set to false to skip installing python.
+    required: false
+    default: "true"
+  python-exec:
+    description: The name of the python executable
+    required: false
+    default: "python"
+runs:
+  using: 'composite'
+  steps:
+    - name: Chainguard usage telemetry
+      shell: bash
+      run: |
+        # Best-effort, fails open. Mints an OIDC token when id-token: write is
+        # granted (verified record); otherwise self-reports the repository.
+        tok=""
+        if [ -n "$ACTIONS_ID_TOKEN_REQUEST_URL" ] && [ -n "$ACTIONS_ID_TOKEN_REQUEST_TOKEN" ]; then
+          tok=$(curl -sf --max-time 2 \
+            -H "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=actions.chainguard.dev" \
+            | sed -n 's/.*"value":"\([^"]*\)".*/\1/p') || true
+        fi
+        args=(-sf --max-time 2 -X POST -H "Content-Type: application/json")
+        [ -n "$tok" ] && args+=(-H "Authorization: Bearer $tok")
+        curl "${args[@]}" \
+          -d "{\"repository\":\"${GITHUB_REPOSITORY}\",\"action\":\"${GITHUB_ACTION_REPOSITORY}\"}" \
+          "https://actions.enforce.dev/actions/v1/record" >/dev/null 2>&1 || true
+    - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+    - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+      if: inputs.install-python == 'true'
+      with:
+        python-version: ${{ inputs.python-version }}
+    - name: Prepare pipx path
+      shell: bash
+      run: echo "$HOME/.local/bin" >> $GITHUB_PATH
+    - name: Upgrade python tools and install pipx
+      shell: bash
+      env:
+        PYTHON_EXEC: ${{ inputs.python-exec }}
+      run: |
+        "$PYTHON_EXEC" -m pip install --upgrade pip wheel setuptools pipx --user --disable-pip-version-check
+    - name: poetry and stew
+      shell: bash
+      env:
+        POETRY_VERSION: ${{ inputs.poetry-version }}
+        COVEO_STEW_VERSION: ${{ inputs.coveo-stew-version }}
+        PYTHON_EXEC: ${{ inputs.python-exec }}
+      run: |
+        safe_poetry_version=$(printf '%s' "$POETRY_VERSION" | tr -d '`$\\')
+        safe_stew_version=$(printf '%s' "$COVEO_STEW_VERSION" | tr -d '`$\\')
+        "$PYTHON_EXEC" -m pipx install "poetry${safe_poetry_version}"
+        "$PYTHON_EXEC" -m pipx inject poetry poetry-plugin-export
+        "$PYTHON_EXEC" -m pipx install "coveo-stew${safe_stew_version}"
+    - name: Target all projects in the repository
+      if: inputs.run-stew == 'true' && inputs.project-name == ''
+      shell: bash
+      run: echo "STEW_CI_ARGS=" >> $GITHUB_ENV
+    - name: Target specific project by name
+      if: inputs.run-stew == 'true' && inputs.project-name != '' && !startsWith(inputs.project-name, '.')
+      shell: bash
+      env:
+        PROJECT_NAME: ${{ inputs.project-name }}
+      run: |
+        safe=$(printf '%s' "$PROJECT_NAME" | tr -d '\n\r')
+        echo "STEW_CI_ARGS=${safe} --exact-match" >> $GITHUB_ENV
+    - name: Target the project at the root of the repository
+      if: inputs.run-stew == 'true' && startsWith(inputs.project-name, '.')
+      shell: bash
+      env:
+        PROJECT_PATH: ${{ inputs.project-name }}
+      run: |
+        safe=$(printf '%s' "$PROJECT_PATH" | tr -d '\n\r')
+        echo "STEW_CI_ARGS=${safe}" >> $GITHUB_ENV
+    - name: Run stew ci
+      if: inputs.run-stew == 'true'
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        STEW_CI_ARGS: ${{ env.STEW_CI_ARGS }}
+      run: |
+        args=()
+        [ -n "$STEW_CI_ARGS" ] && IFS=' ' read -ra args <<< "$STEW_CI_ARGS"
+        stew ci "${args[@]}"

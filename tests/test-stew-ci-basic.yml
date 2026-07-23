@@ -1,0 +1,20 @@
+name: Test stew ci basic run
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - id: action
+        uses: .
+        with:
+          python-version: "3.11"
+          project-name: "."
+          working-directory: "${{ github.workspace }}/tests/fixtures/myproject"
+          run-stew: "true"
+
+      - name: Assert stew ci completed successfully
+        run: |
+          echo "PASS: stew ci ran without error"

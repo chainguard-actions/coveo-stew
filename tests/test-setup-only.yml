@@ -1,0 +1,41 @@
+name: Test setup only (run-stew false)
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - id: action
+        uses: .
+        with:
+          python-version: "3.11"
+          run-stew: "false"
+      - name: Assert poetry is installed
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          echo "Checking poetry installation..."
+          if ! command -v poetry &> /dev/null; then
+            echo "FAIL: poetry not found in PATH"
+            exit 1
+          fi
+          echo "PASS: poetry found at $(command -v poetry)"
+      - name: Assert stew is installed
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          echo "Checking stew installation..."
+          if ! command -v stew &> /dev/null; then
+            echo "FAIL: stew not found in PATH"
+            exit 1
+          fi
+          echo "PASS: stew found at $(command -v stew)"
+      - name: Assert python version
+        run: |
+          echo "Checking python version..."
+          PYTHON_VERSION=$(python --version 2>&1)
+          echo "actual: $PYTHON_VERSION"
+          if ! echo "$PYTHON_VERSION" | grep -q "3.11"; then
+            echo "FAIL: expected Python 3.11, got $PYTHON_VERSION"
+            exit 1
+          fi
+          echo "PASS"

@@ -1,0 +1,68 @@
+name: Build
+description: Build project
+
+inputs:
+  pre-release:
+    description: Set to true if a pre-release version should be published.
+    required: false
+    default: 'false'
+  dry-run:
+    description: Set to true for a test run that doesn't publish or tag.
+    default: 'false'
+
+outputs:
+  next-version:
+    description: Next version
+    value: ${{ steps.get-next-version.outputs.version }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Determine the minimum version for this release (the one in the pyproject.toml file)
+      shell: bash
+      id: get-minimum-version
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+      run: |
+        min_ver=$("$ACTION_PATH/get-minimum-version.sh")
+        safe=$(printf '%s' "$min_ver" | tr -d '\n\r')
+        echo "minimum-version=$safe" >> $GITHUB_OUTPUT
+
+    - name: Compute the release and prerelease versions
+      id: get-versions
+      shell: bash
+      env:
+        MINIMUM_VERSION: ${{ steps.get-minimum-version.outputs.minimum-version }}
+      run: |
+        RELEASE="$(pypi next-version coveo-stew --minimum-version "$MINIMUM_VERSION")"
+        PRERELEASE="$(pypi next-version coveo-stew --prerelease --minimum-version "$MINIMUM_VERSION")"
+        safe_release=$(printf '%s' "$RELEASE" | tr -d '\n\r')
+        safe_prerelease=$(printf '%s' "$PRERELEASE" | tr -d '\n\r')
+        echo "release=$safe_release" >> $GITHUB_OUTPUT
+        echo "Next release: $safe_release"
+        echo "prerelease=$safe_prerelease" >> $GITHUB_OUTPUT
+        echo "Next prerelease: $safe_prerelease"
+
+    - name: Determine the version to publish.
+      shell: bash
+      id: get-next-version
+      env:
+        PRE_RELEASE: ${{ inputs.pre-release }}
+        PRERELEASE_VERSION: ${{ steps.get-versions.outputs.prerelease }}
+        RELEASE_VERSION: ${{ steps.get-versions.outputs.release }}
+      run: |
+        if [[ "$PRE_RELEASE" == true ]]; then
+          safe=$(printf '%s' "$PRERELEASE_VERSION" | tr -d '\n\r')
+          echo "version=$safe" >> $GITHUB_OUTPUT
+        else
+          safe=$(printf '%s' "$RELEASE_VERSION" | tr -d '\n\r')
+          echo "version=$safe" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Setup poetry for publish
+      shell: bash
+      env:
+        NEXT_VERSION: ${{ steps.get-next-version.outputs.version }}
+      run: |
+        poetry version "$NEXT_VERSION"
+        poetry build

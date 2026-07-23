@@ -1,0 +1,36 @@
+name: Test custom poetry and stew versions
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - id: action
+        uses: .
+        with:
+          python-version: "3.11"
+          poetry-version: ">=1.7.0,<2.0.0"
+          coveo-stew-version: "<5"
+          run-stew: "false"
+      - name: Assert poetry version constraint satisfied
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          echo "Checking poetry version..."
+          POETRY_VERSION=$(poetry --version 2>&1)
+          echo "actual: $POETRY_VERSION"
+          # Extract version number and check it's 1.x
+          if ! echo "$POETRY_VERSION" | grep -qE "1\.[0-9]+\.[0-9]+"; then
+            echo "FAIL: expected Poetry 1.x, got: $POETRY_VERSION"
+            exit 1
+          fi
+          echo "PASS"
+      - name: Assert stew version constraint satisfied
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          echo "Checking stew installation..."
+          if ! command -v stew &> /dev/null; then
+            echo "FAIL: stew not found in PATH"
+            exit 1
+          fi
+          echo "PASS: stew found at $(command -v stew)"

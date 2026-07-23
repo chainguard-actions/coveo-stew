@@ -1,0 +1,131 @@
+name: coveo-stew
+
+on:
+  push:
+    branches:
+      - main
+
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "Publish to pypi.org?"
+        required: false
+        default: 'false'
+
+permissions:
+  contents: read
+
+jobs:
+  compatibility:
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.x"]
+        poetry-version: ["==2.0", ""]  # empty means latest
+        os: [ubuntu-latest, windows-latest, macos-latest]
+
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - uses: ./.github/workflows/actions/setup-python-and-tools
+        with:
+          python-version: ${{ matrix.python-version }}
+          poetry-version: ${{ matrix.poetry-version }}
+
+      - uses: ./.github/workflows/actions/stew-ci
+
+  publish:
+    if: github.ref == 'refs/heads/main'
+    name: Publish to pypi.org
+    runs-on: ubuntu-latest
+    needs: compatibility
+
+    environment:
+      name: pypi
+      url: https://pypi.org/project/coveo-stew/
+    permissions:
+      contents: write
+      id-token: write
+
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+
+      - name: Checkout repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - uses: ./.github/workflows/actions/setup-python-and-tools
+        with:
+          python-version: "3.13"
+          poetry-version: ">=2.0.0"
+
+      - name: Install coveo-pypi-cli
+        shell: bash
+        run: pipx install "coveo-pypi-cli>=2.1.2"
+
+      - name: Build
+        uses: ./.github/workflows/actions/build
+        id: build
+        with:
+          pre-release: ${{ github.ref != 'refs/heads/main' }}
+          dry-run: ${{ github.ref != 'refs/heads/main' && github.event.inputs.publish != 'true' }}
+
+      - name: Publish to pypi
+        uses: pypa/gh-action-pypi-publish@ed0c53931b1dc9bd32cbe73a98c7f6766f8a527e # v1.13.0
+
+      - name: Create tag
+        uses: ./.github/workflows/actions/post-publish
+        with:
+          next-version: ${{ steps.build.outputs.next-version }}
+          dry-run: ${{ github.ref != 'refs/heads/main' && github.event.inputs.publish != 'true' }}
+
+  test-action:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - coveo-stew-version: '>=4'
+            run_stew: "true"
+          - coveo-stew-version: '>=3,<4'
+            run_stew: "false"  # Don't run stew directly in the action for 3.x
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+
+      - name: Checkout repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - uses: ./
+        with:
+          python-version: "3.12"
+          project-name: coveo-stew
+          coveo-stew-version: ${{ matrix.coveo-stew-version }}
+          poetry-version: '>=2'
+          run-stew: ${{ matrix.run_stew }}
+
+      - name: Swap pyproject.toml for a coveo-stew 3.x compatible version
+        if: matrix.coveo-stew-version == '>=3,<4'
+        shell: bash
+        run: |
+          # Install required dependency for the conversion script and run it
+          rm -f ./pyproject.toml
+          rm -f ./poetry.lock
+          mv ./backward-compat-pyproject.toml ./pyproject.toml
+
+          # run stew ci
+          stew ci coveo-stew --exact-match
+

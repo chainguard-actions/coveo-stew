@@ -1,0 +1,18 @@
+[tool.poetry]
+name = "myproject"
+version = "0.1.0"
+description = "Test project"
+authors = ["Test <test@example.com>"]
+packages = [{include = "myproject"}]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.stew.ci]
+mypy = false
+pylint = false
+pytest = false
