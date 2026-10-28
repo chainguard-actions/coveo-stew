@@ -6,9 +6,9 @@ Hardened by [Chainguard](https://www.chainguard.dev) from the upstream action at
 
 ## Versions
 
-| Version | Tag | Upstream commit |
-|---------|-----|-----------------|
-| 4.1.6 | [`4.1.6`](https://github.com/chainguard-actions/coveo-stew/tree/4.1.6) | [`70ac6f5`](https://github.com/coveo/stew/commit/70ac6f58663602c19cf3bd0d8d6141d073fb4708) |
+| Version | Tag | Upstream commit | Hardening report |
+|---------|-----|-----------------|------------------|
+| 4.1.6 | [`4.1.6`](https://github.com/chainguard-actions/coveo-stew/tree/4.1.6) | [`70ac6f5`](https://github.com/coveo/stew/commit/70ac6f58663602c19cf3bd0d8d6141d073fb4708) | [`HARDENING.md`](https://github.com/chainguard-actions/coveo-stew/blob/4.1.6/HARDENING.md) |
 
 ## Privacy
 
