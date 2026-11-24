@@ -1,0 +1,55 @@
+name: Test custom poetry version constraint
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - id: action
+        uses: .
+        with:
+          python-version: "3.11"
+          poetry-version: "==1.8.3"
+          coveo-stew-version: "<5"
+          run-stew: "false"
+          project-name: "some-project"
+      - name: Assert poetry version honors constraint
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          v="$(poetry --version 2>&1)"
+          echo "poetry: $v"
+          if ! echo "$v" | grep -q "1\.8\.3"; then
+            echo "FAIL: expected poetry 1.8.3"
+            exit 1
+          fi
+          echo "PASS"
+      - name: Assert poetry-plugin-export injected
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          # `pipx list` hides injected packages by default; inspect the poetry venv directly.
+          python -m pipx runpip poetry list 2>&1 | tee /tmp/pipx.txt
+          if ! grep -qiE "poetry[-_]plugin[-_]export" /tmp/pipx.txt; then
+            echo "FAIL: poetry-plugin-export not present in poetry venv"
+            exit 1
+          fi
+          if ! poetry export --help >/dev/null 2>&1; then
+            echo "FAIL: 'poetry export' command not available"
+            exit 1
+          fi
+          echo "PASS"
+      - name: Assert python version
+        run: |
+          v="$(python --version 2>&1)"
+          echo "python: $v"
+          case "$v" in
+            "Python 3.11"*) echo "PASS" ;;
+            *) echo "FAIL: expected Python 3.11"; exit 1 ;;
+          esac
+      - name: Assert no stew target set (run-stew false)
+        run: |
+          if [ -n "${STEW_CI_ARGS+x}" ]; then
+            echo "FAIL: STEW_CI_ARGS set: '$STEW_CI_ARGS'"
+            exit 1
+          fi
+          echo "PASS"

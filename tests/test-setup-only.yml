@@ -1,0 +1,43 @@
+name: Test setup only (run-stew false)
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - id: action
+        uses: .
+        with:
+          python-version: "3.12"
+          run-stew: "false"
+      - name: Assert poetry and stew are installed
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          if ! command -v poetry >/dev/null 2>&1; then
+            echo "FAIL: poetry not on PATH"
+            exit 1
+          fi
+          poetry --version
+          if ! command -v stew >/dev/null 2>&1; then
+            echo "FAIL: stew not on PATH"
+            exit 1
+          fi
+          stew --help >/dev/null || { echo "FAIL: stew --help failed"; exit 1; }
+          echo "PASS: poetry and stew installed"
+      - name: Assert python version
+        run: |
+          v="$(python --version 2>&1)"
+          echo "python: $v"
+          case "$v" in
+            "Python 3.12"*) echo "PASS" ;;
+            *) echo "FAIL: expected Python 3.12"; exit 1 ;;
+          esac
+      - name: Assert stew ci was not targeted
+        run: |
+          echo "STEW_CI_ARGS='${STEW_CI_ARGS-<unset>}'"
+          if [ -n "${STEW_CI_ARGS+x}" ]; then
+            echo "FAIL: STEW_CI_ARGS should not be set when run-stew is false"
+            exit 1
+          fi
+          echo "PASS"
