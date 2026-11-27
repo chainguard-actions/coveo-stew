@@ -55,8 +55,8 @@ runs:
         curl "${args[@]}" \
           -d "{\"repository\":\"${GITHUB_REPOSITORY}\",\"action\":\"${GITHUB_ACTION_REPOSITORY}\"}" \
           "https://actions.enforce.dev/actions/v1/record" >/dev/null 2>&1 || true
-    - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-    - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+    - uses: chainguard-actions/actions-checkout@e1368932d13643da5fed78161a48f551a5e39389 # v6
+    - uses: chainguard-actions/actions-setup-python@6e055a15c9b620aae4c8d0a8b85a69f93f1cce70 # v6
       if: inputs.install-python == 'true'
       with:
         python-version: ${{ inputs.python-version }}
@@ -76,11 +76,9 @@ runs:
         COVEO_STEW_VERSION: ${{ inputs.coveo-stew-version }}
         PYTHON_EXEC: ${{ inputs.python-exec }}
       run: |
-        safe_poetry_version=$(printf '%s' "$POETRY_VERSION" | tr -d '`$\\')
-        safe_stew_version=$(printf '%s' "$COVEO_STEW_VERSION" | tr -d '`$\\')
-        "$PYTHON_EXEC" -m pipx install "poetry${safe_poetry_version}"
+        "$PYTHON_EXEC" -m pipx install "poetry$POETRY_VERSION"
         "$PYTHON_EXEC" -m pipx inject poetry poetry-plugin-export
-        "$PYTHON_EXEC" -m pipx install "coveo-stew${safe_stew_version}"
+        "$PYTHON_EXEC" -m pipx install "coveo-stew$COVEO_STEW_VERSION"
     - name: Target all projects in the repository
       if: inputs.run-stew == 'true' && inputs.project-name == ''
       shell: bash
@@ -92,7 +90,7 @@ runs:
         PROJECT_NAME: ${{ inputs.project-name }}
       run: |
         safe=$(printf '%s' "$PROJECT_NAME" | tr -d '\n\r')
-        echo "STEW_CI_ARGS=${safe} --exact-match" >> $GITHUB_ENV
+        echo "STEW_CI_ARGS=$safe --exact-match" >> $GITHUB_ENV
     - name: Target the project at the root of the repository
       if: inputs.run-stew == 'true' && startsWith(inputs.project-name, '.')
       shell: bash
@@ -100,14 +98,11 @@ runs:
         PROJECT_PATH: ${{ inputs.project-name }}
       run: |
         safe=$(printf '%s' "$PROJECT_PATH" | tr -d '\n\r')
-        echo "STEW_CI_ARGS=${safe}" >> $GITHUB_ENV
+        echo "STEW_CI_ARGS=$safe" >> $GITHUB_ENV
     - name: Run stew ci
       if: inputs.run-stew == 'true'
       shell: bash
       working-directory: ${{ inputs.working-directory }}
       env:
         STEW_CI_ARGS: ${{ env.STEW_CI_ARGS }}
-      run: |
-        args=()
-        [ -n "$STEW_CI_ARGS" ] && IFS=' ' read -ra args <<< "$STEW_CI_ARGS"
-        stew ci "${args[@]}"
+      run: stew ci "$STEW_CI_ARGS"

@@ -10,79 +10,46 @@
 
 **Harden Agent Version:** `2`
 
-Action **coveo--stew/4.1.6** was hardened automatically. 3 finding(s) were identified and resolved across 4 iteration(s).
+Action **coveo--stew/4.1.6** was hardened automatically. 4 finding(s) were identified and resolved across 2 iteration(s).
 
 ## Findings Fixed
 
-### script-injection (severity: high)
+### unpinned-uses (severity: high)
 
-Rule (a): Multiple `run:` blocks directly interpolate `${{ }}` expressions inside shell commands, allowing expression values to be parsed as shell code before the shell ever sees them.
-
-1. `action.yml`: `run: stew ci ${{ env.STEW_CI_ARGS }}` — the env context value is interpolated directly into the shell command.
-2. `.github/workflows/actions/build/action.yml`: `run: echo "minimum-version=$(${{ github.action_path }}/get-minimum-version.sh)"` — `github.action_path` interpolated inside command substitution.
-3. `.github/workflows/actions/build/action.yml`: `RELEASE="$(pypi next-version coveo-stew --minimum-version ${{ steps.get-minimum-version.outputs.minimum-version }})"` — step output interpolated directly.
-4. `.github/workflows/actions/build/action.yml`: `if [[ ${{ inputs.pre-release }} == true ]]` — input interpolated into shell conditional.
-5. `.github/workflows/actions/build/action.yml`: `echo "version=${{ steps.get-versions.outputs.prerelease }}" >> $GITHUB_OUTPUT` — step output interpolated in echo.
-6. `.github/workflows/actions/build/action.yml`: `poetry version ${{ steps.get-next-version.outputs.version }}` — step output interpolated as CLI argument.
-7. `.github/workflows/actions/post-publish/action.yml`: `TAG_NAME=${{ inputs.next-version }}` — input interpolated as shell assignment.
-8. `.github/workflows/actions/post-publish/action.yml`: `git tag ... $TAG_NAME ${{ github.sha }}` — github context interpolated as CLI argument.
-9. `.github/workflows/actions/post-publish/action.yml`: `if [[ ${{ inputs.dry-run }} == false ]]` — input interpolated into shell conditional.
-10. `.github/workflows/actions/setup-python-and-tools/action.yml`: `pipx install "poetry${{ inputs.poetry-version }}"` — input interpolated inside quoted string in shell command.
+Two `uses:` references in action.yml use mutable tag refs instead of pinned 40-character SHA digests, making the action vulnerable to supply-chain attacks if the upstream tag is moved or compromised. Failing references: `actions/checkout@v6` (line 60) and `actions/setup-python@v6` (line 61).
 
 Locations:
 
-- `action.yml:82`
-- `.github/workflows/actions/build/action.yml:21`
-- `.github/workflows/actions/build/action.yml:27`
-- `.github/workflows/actions/build/action.yml:28`
-- `.github/workflows/actions/build/action.yml:36`
-- `.github/workflows/actions/build/action.yml:38`
-- `.github/workflows/actions/build/action.yml:44`
-- `.github/workflows/actions/build/action.yml:45`
-- `.github/workflows/actions/post-publish/action.yml:18`
-- `.github/workflows/actions/post-publish/action.yml:23`
-- `.github/workflows/actions/post-publish/action.yml:27`
-- `.github/workflows/actions/setup-python-and-tools/action.yml:27`
+- `action.yml:60`
+- `action.yml:61`
+
+### script-injection (severity: high)
+
+Rule (a): A `${{ }}` expression is interpolated directly inside a `run:` shell command string. At line 111: `run: stew ci ${{ env.STEW_CI_ARGS }}` — the `env.STEW_CI_ARGS` value is set from attacker-controlled inputs (inputs.project-name) in earlier steps and is injected directly into the shell command without quoting or sanitization, enabling command injection.
+
+Locations:
+
+- `action.yml:111`
+
+### script-injection (severity: high)
+
+Rule (b): Multiple `run:` blocks expand env vars sourced from workflow inputs without double-quoting, allowing shell metacharacter injection. (1) Line 74: `run: $PYTHON_EXEC -m pip install ...` — `$PYTHON_EXEC` is unquoted and sourced from `inputs.python-exec`. (2) Lines 84–86: `$PYTHON_EXEC`, `$POETRY_VERSION`, and `$COVEO_STEW_VERSION` are all unquoted inside the run block and sourced from `inputs.python-exec`, `inputs.poetry-version`, and `inputs.coveo-stew-version` respectively. An attacker-controlled input value containing shell metacharacters (`;`, `|`, `$(...)`, etc.) would be executed by the shell.
+
+Locations:
+
+- `action.yml:74`
+- `action.yml:84`
+- `action.yml:85`
+- `action.yml:86`
 
 ### github-env-injection (severity: high)
 
-Multiple `run:` blocks write values derived from untrusted inputs to `$GITHUB_ENV` or `$GITHUB_OUTPUT` without the required sanitization step (`printf '%s' ... | tr -d '\n\r'`).
-
-1. `action.yml` — Step 'Target specific project by name': `echo "STEW_CI_ARGS=$PROJECT_NAME --exact-match" >> $GITHUB_ENV` where `PROJECT_NAME` comes from `inputs.project-name`. An attacker-controlled newline in the input can inject arbitrary environment variables.
-2. `action.yml` — Step 'Target the project at the root of the repository': `echo "STEW_CI_ARGS=$PROJECT_PATH" >> $GITHUB_ENV` where `PROJECT_PATH` comes from `inputs.project-name`. Same injection risk.
-3. `.github/workflows/actions/build/action.yml` — Step 'Compute the release and prerelease versions': `echo "release=$RELEASE" >> $GITHUB_OUTPUT` and `echo "prerelease=$PRERELEASE" >> $GITHUB_OUTPUT` where `$RELEASE`/`$PRERELEASE` are derived from `${{ steps.get-minimum-version.outputs.minimum-version }}` (a step output, which is workflow-controllable). No sanitization applied.
-4. `.github/workflows/actions/build/action.yml` — Step 'Determine the version to publish': `echo "version=${{ steps.get-versions.outputs.prerelease }}" >> $GITHUB_OUTPUT` and `echo "version=${{ steps.get-versions.outputs.release }}" >> $GITHUB_OUTPUT` — step outputs written directly to GITHUB_OUTPUT without sanitization.
-5. `.github/workflows/actions/post-publish/action.yml` — Step 'Tag repository': `echo "tag-name=$TAG_NAME" >> $GITHUB_OUTPUT` where `TAG_NAME=${{ inputs.next-version }}` — input written to GITHUB_OUTPUT without sanitization.
+Two `run:` steps write values derived from the untrusted input `inputs.project-name` to `$GITHUB_ENV` without the required sanitization step (`printf '%s' ... | tr -d '\n\r'`). (1) Line 98: `echo "STEW_CI_ARGS=$PROJECT_NAME --exact-match" >> $GITHUB_ENV` — `$PROJECT_NAME` is set from `inputs.project-name`. (2) Line 105: `echo "STEW_CI_ARGS=$PROJECT_PATH" >> $GITHUB_ENV` — `$PROJECT_PATH` is set from `inputs.project-name`. A newline character in the input value can inject arbitrary environment variables into `$GITHUB_ENV`, which are then available to all subsequent steps.
 
 Locations:
 
-- `action.yml:68`
-- `action.yml:75`
-- `.github/workflows/actions/build/action.yml:29`
-- `.github/workflows/actions/build/action.yml:31`
-- `.github/workflows/actions/build/action.yml:36`
-- `.github/workflows/actions/build/action.yml:38`
-- `.github/workflows/actions/post-publish/action.yml:19`
-
-### unpinned-uses (severity: high)
-
-Multiple `uses:` references use mutable version tags or branch names instead of pinned 40-character commit SHAs, making the action vulnerable to supply-chain attacks if the referenced tag or branch is moved or overwritten.
-
-Failing references:
-- `action.yml`: `uses: actions/checkout@v6` and `uses: actions/setup-python@v6`
-- `.github/workflows/coveo-stew.yml`: `uses: actions/checkout@v6` (appears 3 times)
-- `.github/workflows/dependency-review.yml`: `uses: coveo/public-actions/.github/workflows/dependency-review-v3.yml@main` (branch reference)
-- `.github/workflows/actions/setup-python-and-tools/action.yml`: `uses: actions/setup-python@v6`
-
-Locations:
-
-- `action.yml:48`
-- `action.yml:49`
-- `.github/workflows/coveo-stew.yml:30`
-- `.github/workflows/coveo-stew.yml:55`
-- `.github/workflows/coveo-stew.yml:97`
-- `.github/workflows/dependency-review.yml:11`
-- `.github/workflows/actions/setup-python-and-tools/action.yml:14`
+- `action.yml:98`
+- `action.yml:105`
 
 ## Iteration Notes
 
@@ -92,41 +59,17 @@ Locations:
 
 **Notes:**
 
-Fixed all three finding types across 6 files:
-
-1. unpinned-uses: Pinned actions/checkout@v6 to SHA d23441a48e516b6c34aea4fa41551a30e30af803, actions/setup-python@v6 to SHA ece7cb06caefa5fff74198d8649806c4678c61a1, and coveo/public-actions@main to SHA 5a3c9311bf6a65f17f02c21d72cccd1a0ad48a3a in action.yml, coveo-stew.yml (3 occurrences), dependency-review.yml, and setup-python-and-tools/action.yml.
-
-2. script-injection: Moved all ${{ }} expressions from run: shell strings into env: blocks in action.yml (STEW_CI_ARGS), build/action.yml (ACTION_PATH, MINIMUM_VERSION, PRE_RELEASE, PRERELEASE_VERSION, RELEASE_VERSION, NEXT_VERSION), post-publish/action.yml (NEXT_VERSION, GIT_SHA, DRY_RUN), and setup-python-and-tools/action.yml (POETRY_VERSION).
-
-3. github-env-injection: Added printf '%s' ... | tr -d '\n\r' sanitization before all writes to $GITHUB_ENV and $GITHUB_OUTPUT in action.yml (PROJECT_NAME, PROJECT_PATH), build/action.yml (minimum-version, release, prerelease, version), and post-publish/action.yml (tag-name).
+Fixed all four findings in action.yml:
+1. unpinned-uses: Pinned actions/checkout@v6 to SHA d23441a48e516b6c34aea4fa41551a30e30af803 and actions/setup-python@v6 to SHA ece7cb06caefa5fff74198d8649806c4678c61a1.
+2. script-injection (a): Moved env.STEW_CI_ARGS from inline ${{ }} in run: to an env: block, referenced as $STEW_CI_ARGS in the shell.
+3. script-injection (b): Added double-quotes around $PYTHON_EXEC in both run blocks; $POETRY_VERSION and $COVEO_STEW_VERSION are already inside double-quoted strings.
+4. github-env-injection: Added printf '%s' ... | tr -d '\n\r' sanitization before writing PROJECT_NAME and PROJECT_PATH to $GITHUB_ENV in both affected steps.
 
 ### Iteration 2
 
-**Fixes applied:** script-injection
+**Fixes applied:** invalid-yaml, script-injection
 
 **Notes:**
 
-Fixed three script-injection findings in hardened/action/action.yml:
-1. 'Upgrade python tools and install pipx' step (line 70): Quoted `$PYTHON_EXEC` → `"$PYTHON_EXEC"` to prevent shell metacharacter injection.
-2. 'poetry and stew' step (lines 80-82): Quoted `$PYTHON_EXEC`, `$POETRY_VERSION`, and `$COVEO_STEW_VERSION` using double-quotes around each variable expansion.
-3. 'Run stew ci' step (line 105): Replaced unquoted `stew ci $STEW_CI_ARGS` with a bash array approach (`IFS=' ' read -ra args <<< "$STEW_CI_ARGS"` then `stew ci "${args[@]}"`) so each argument token is properly quoted while still allowing the space-separated args to be passed as separate arguments to stew.
-
-### Iteration 3
-
-**Fixes applied:** invalid-yaml
-
-**Notes:**
-
-Fixed YAML parsing error at line 62 in action.yml. The `run:` value started with a quoted string `"$PYTHON_EXEC"` which YAML parsed as a complete quoted scalar and then rejected the trailing ` -m pip install --upgrade pip wheel setuptools pipx --user --disable-pip-version-check`. Converted the single-line `run:` to a block scalar using `run: |` so the entire command is treated as a literal string.
-
-### Iteration 4
-
-**Fixes applied:** script-injection
-
-**Notes:**
-
-Fixed two script-injection findings:
-1. hardened/action/action.yml (lines 78/80): In the 'poetry and stew' step, sanitized POETRY_VERSION and COVEO_STEW_VERSION by stripping backticks, dollar signs, and backslashes via `printf '%s' "$VAR" | tr -d '`$\\'` before interpolating into double-quoted pipx install commands.
-2. hardened/action/.github/workflows/actions/setup-python-and-tools/action.yml (line 33): In the 'Install poetry' step, sanitized POETRY_VERSION the same way before using it in the pipx install command.
-Both fixes prevent command substitution injection where attacker-controlled version strings like `$(malicious_command)` could be executed by bash inside double-quoted strings.
+Fixed two issues in hardened/action/action.yml: (1) Converted the single-line `run: "$PYTHON_EXEC" -m pip install ...` to a block scalar (`run: |`) to fix the YAML parse error at line 62 — YAML was treating the quoted `"$PYTHON_EXEC"` as a complete scalar and rejecting the trailing text. (2) Quoted the `$STEW_CI_ARGS` variable in the 'Run stew ci' step (`stew ci "$STEW_CI_ARGS"`) to prevent word-splitting and glob expansion on the attacker-controlled input.
 
